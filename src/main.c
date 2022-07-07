@@ -7,16 +7,19 @@
   CONDITIONS OF ANY KIND, either express or implied.
 */
 
+#include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_err.h"
 #include "esp_system.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "driver/gpio.h"
+#include "driver/ledc.h"
 
 #include "lwip/err.h"
 #include "lwip/sys.h"
@@ -25,6 +28,17 @@
 #define EXAMPLE_ESP_WIFI_PASS "12345678"
 #define EXAMPLE_MAX_STA_CONN (3)
 #define GPIO_OUTPUT_PIN_SEL ((1ULL<<GPIO_NUM_2))
+
+#ifdef CONFIG_IDF_TARGET_ESP32
+#define LEDC_HS_TIMER       LEDC_TIMER_0
+#define LEDC_HS_MODE        LEDC_HIGH_SPEED_MODE
+#define LEDC_HS_CH0_GPIO    (2)
+#define LEDC_HS_CH0_CHANNEL LEDC_CHANNEL_0
+#endif
+
+#define LEDC_TEST_CH_NUM      (4)
+#define LEDC_TEST_DUTY        (1000)
+#define LEDC_TEST_FADE_TIME   (3000)
 
 
 //1ULL unsigned long long 64bits
@@ -39,8 +53,11 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
     wifi_event_ap_staconnected_t *event = (wifi_event_ap_staconnected_t *)event_data;
     ESP_LOGI(TAG, "station " MACSTR " join, AID=%d",MAC2STR(event->mac), event->aid);
 
-    gpio_set_level(GPIO_NUM_2,1);
-
+    //gpio_set_level(GPIO_NUM_2,1);
+    //ledc_set_duty(LEDC_HS_MODE, LEDC_HS_CH0_CHANNEL,100);
+    //ledc_update_duty(LEDC_HS_MODE, LEDC_HS_CH0_CHANNEL);
+    ledc_set_fade_with_time(LEDC_HS_MODE,LEDC_HS_CH0_CHANNEL,LEDC_TEST_DUTY,1000);
+    ledc_fade_start(LEDC_HS_MODE,LEDC_HS_CH0_CHANNEL,LEDC_FADE_NO_WAIT);
   }
   else if (event_id == WIFI_EVENT_AP_STADISCONNECTED)
   {
@@ -48,7 +65,11 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
     ESP_LOGI(TAG, "station " MACSTR " leave, AID=%d",
             MAC2STR(event->mac), event->aid);
     
-    gpio_set_level(GPIO_NUM_2,0);
+    //gpio_set_level(GPIO_NUM_2,0);
+    //ledc_set_duty(LEDC_HS_MODE, LEDC_HS_CH0_CHANNEL,0);
+    //ledc_update_duty(LEDC_HS_MODE, LEDC_HS_CH0_CHANNEL);
+    ledc_set_fade_with_time(LEDC_HS_MODE,LEDC_HS_CH0_CHANNEL,0,1000);
+    ledc_fade_start(LEDC_HS_MODE,LEDC_HS_CH0_CHANNEL,LEDC_FADE_NO_WAIT);
   }
 }
 
@@ -94,9 +115,35 @@ void init_led(){
   
 }
 
+void init_pwm(){
+  
+  //configuracion de timer
+  ledc_timer_config_t ledc_timer = {
+    .duty_resolution = LEDC_TIMER_13_BIT, //resolucion en bits
+    .freq_hz = 5000,                      //frecuencia
+    .speed_mode = LEDC_HS_MODE,           //modo sin glitch
+    .clk_cfg = LEDC_AUTO_CLK,             //seleccion automatica del reloj
+  };
+  ledc_timer_config(&ledc_timer);
+
+  ledc_channel_config_t ledc_channel = {
+    
+      .channel = LEDC_HS_CH0_CHANNEL,
+      .duty = 0,
+      .gpio_num = LEDC_HS_CH0_GPIO,
+      .speed_mode = LEDC_HS_MODE,
+      .hpoint = 0,
+      .timer_sel = LEDC_HS_TIMER
+    
+  };
+  ledc_channel_config(&ledc_channel);
+  ledc_fade_func_install(0);
+}
+
 void app_main()
 {
-  init_led();
+  //init_led();
+  init_pwm();
   // Initialize NVS
   esp_err_t ret = nvs_flash_init();
   if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
@@ -107,5 +154,6 @@ void app_main()
   ESP_ERROR_CHECK(ret);
 
   ESP_LOGI(TAG, "ESP_WIFI_MODE_AP");
+
   wifi_init_softap();
 }
